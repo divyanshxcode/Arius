@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import DateTime, Float, Integer, String, Text, Index
+from sqlalchemy import DateTime, Float, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from .db import Base, TDBase
@@ -90,15 +90,16 @@ class Event(Base):
 
 
 class Metric(TDBase):
-    """Telemetry — lives in Tiger Data, hypertable on `ts`."""
+    """Telemetry — lives in Tiger Data, hypertable on `ts`.
+
+    No surrogate `id`: Timescale requires every unique index (and the primary
+    key) to include the partitioning column, so the PK is (host_id, ts).
+    """
 
     __tablename__ = "metrics"
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    host_id: Mapped[int] = mapped_column(Integer, nullable=False)
-    ts: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    host_id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    ts: Mapped[datetime] = mapped_column(DateTime, primary_key=True)
     util_pct: Mapped[float] = mapped_column(Float, default=0.0)
     power_w: Mapped[float] = mapped_column(Float, default=0.0)
     temp_c: Mapped[float] = mapped_column(Float, default=0.0)
-
-    __table_args__ = (Index("ix_metrics_host_ts", "host_id", "ts"),)

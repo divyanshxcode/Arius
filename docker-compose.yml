@@ -16,7 +16,6 @@ services:
       --base_dir=/home/yugabyte/yb_data
       --advertise_address=172.28.0.2
       --cloud_location=arius.ap-south.zone1
-      --join=172.28.0.2,172.28.0.3,172.28.0.4
       --fault_tolerance=zone
     ports:
       - "5433:5433"
@@ -26,11 +25,11 @@ services:
     volumes:
       - yb1_data:/home/yugabyte/yb_data
     healthcheck:
-      test: ["CMD", "bash", "-c", "bin/ysqlsh -h 127.0.0.1 -p 5433 -U yugabyte -c 'select 1' >/dev/null 2>&1"]
-      interval: 15s
+      test: ["CMD", "bash", "-c", "bin/ysqlsh -h 172.28.0.2 -p 5433 -U yugabyte -c 'select 1' >/dev/null 2>&1"]
+      interval: 10s
       timeout: 10s
-      retries: 20
-      start_period: 60s
+      retries: 30
+      start_period: 45s
 
   yb-node2:
     image: yugabytedb/yugabyte:2.25.1.0-b381
@@ -40,15 +39,16 @@ services:
       --base_dir=/home/yugabyte/yb_data
       --advertise_address=172.28.0.3
       --cloud_location=arius.ap-south.zone2
-      --join=172.28.0.2,172.28.0.3,172.28.0.4
       --fault_tolerance=zone
+      --join=172.28.0.2
     networks:
       arius:
         ipv4_address: 172.28.0.3
     volumes:
       - yb2_data:/home/yugabyte/yb_data
     depends_on:
-      - yb-node1
+      yb-node1:
+        condition: service_healthy
 
   yb-node3:
     image: yugabytedb/yugabyte:2.25.1.0-b381
@@ -58,15 +58,16 @@ services:
       --base_dir=/home/yugabyte/yb_data
       --advertise_address=172.28.0.4
       --cloud_location=arius.ap-south.zone3
-      --join=172.28.0.2,172.28.0.3,172.28.0.4
       --fault_tolerance=zone
+      --join=172.28.0.2
     networks:
       arius:
         ipv4_address: 172.28.0.4
     volumes:
       - yb3_data:/home/yugabyte/yb_data
     depends_on:
-      - yb-node1
+      yb-node1:
+        condition: service_healthy
 
   tiger:
     image: timescale/timescaledb:latest-pg16

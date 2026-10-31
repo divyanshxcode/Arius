@@ -36,6 +36,8 @@ Requires Docker Desktop (WSL2 engine).
 
 ```bash
 docker compose up -d          # 3-node Yugabyte on 5433 + Timescale/Tiger on 5434
+# one-time: create the application database (containers start with the default db)
+docker exec arius-yb1 bin/ysqlsh -h 172.28.0.2 -U yugabyte -c 'CREATE DATABASE arius'
 cd backend
 ./.venv/Scripts/python.exe -m seeds.init_db --seed --force
 ./.venv/Scripts/python.exe -m uvicorn app.main:app --port 8000 --reload
@@ -90,3 +92,7 @@ Arius/
 ## Note on Docker
 
 Docker is **not required** for development: `DB_MODE=auto` (default) tries Yugabyte on 5433 and transparently falls back to a local SQLite file, and `/health` reports honestly which mode is live. The demo must run on the real cluster (`DB_MODE=yugabyte`) so the Raft node-kill beat is genuine.
+
+Verified locally on Docker Desktop 29.9.2 (12 CPUs / 8 GB): 3 masters + 3 tservers, RF=3 with one replica per zone, `util_1m` continuous aggregate live, and a node-stop test that kept serving reads (`12 hosts / 25 jobs`) with one node down.
+
+Ports are non-default on purpose: **5433** YSQL (Yugabyte's yugabyted default) and **5434** for Tiger, because 5432 is usually taken by a local PostgreSQL install.

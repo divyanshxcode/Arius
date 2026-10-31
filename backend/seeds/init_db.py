@@ -41,6 +41,9 @@ TIMESCALE_STEPS = [
     FROM metrics
     GROUP BY host_id, bucket
     """,
+    # real-time aggregation + populate the view immediately so charts are never empty
+    "ALTER MATERIALIZED VIEW util_1m SET (timescaledb.materialized_only = false)",
+    "CALL refresh_continuous_aggregate('util_1m', NULL, NULL)",
 ]
 
 
@@ -84,7 +87,7 @@ def main() -> int:
 
         session_hint = db.session_factory()
         yb_s = session_hint()
-        td_s = db.session_factory()()
+        td_s = db.td_session_factory()()
         try:
             result = seed(yb_s, td_s, force=args.force)
         finally:

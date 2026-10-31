@@ -151,6 +151,11 @@ def session_factory() -> sessionmaker[Session]:
     return sessionmaker(bind=get_engine(), expire_on_commit=False, future=True)
 
 
+def td_session_factory() -> sessionmaker[Session]:
+    """Sessions bound to the telemetry store (Tiger Data)."""
+    return sessionmaker(bind=get_td_engine(), expire_on_commit=False, future=True)
+
+
 def get_session():
     """FastAPI dependency."""
     session = session_factory()()

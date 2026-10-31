@@ -56,7 +56,9 @@ JOB_NAMES = [
 
 
 def _clear(yb: Session, td: Session) -> None:
-    for model in (Slice, Job, Metric, Event, Host, Org):
+    # metrics live ONLY in the telemetry store (Tiger Data / Timescale);
+    # the transactional store never has that table.
+    for model in (Slice, Job, Event, Host, Org):
         yb.query(model).delete()
     yb.commit()
     td.query(Metric).delete()
