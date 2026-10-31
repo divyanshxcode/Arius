@@ -136,10 +136,20 @@ def h_slices(session: Session, host_id: int):
     return session.query(Slice).filter(Slice.host_id == host_id).all()
 
 
+def _get(session: Session, model, pk):
+    """Lookup that tolerates a transient distributed-DB read abort."""
+    if pk is None:
+        return None
+    try:
+        return session.get(model, pk)
+    except Exception:  # noqa: BLE001 - a missing name must not 500 the panel
+        return None
+
+
 def host_dict(session: Session, h: Host) -> dict:
     sl = h_slices(session, h.id)
     rented = sum(1 for s in sl if s.status == "rented")
-    owner = session.get(Org, h.org_id)
+    owner = _get(session, Org, h.org_id)
     return {
         "id": h.id,
         "name": h.name,
@@ -159,8 +169,8 @@ def host_dict(session: Session, h: Host) -> dict:
 
 
 def job_dict(session: Session, j: Job, live: dict | None = None) -> dict:
-    org = session.get(Org, j.org_id)
-    host = session.get(Host, j.host_id) if j.host_id else None
+    org = _get(session, Org, j.org_id)
+    host = _get(session, Host, j.host_id) if j.host_id else None
     out = {
         "id": j.id,
         "org": org.name if org else None,
@@ -183,8 +193,8 @@ def job_dict(session: Session, j: Job, live: dict | None = None) -> dict:
 
 
 def txn_dict(session: Session, t: Transaction) -> dict:
-    src = session.get(Org, t.from_org)
-    dst = session.get(Org, t.to_org)
+    src = _get(session, Org, t.from_org)
+    dst = _get(session, Org, t.to_org)
     return {
         "id": t.id,
         "from_org": src.name if src else t.from_org,

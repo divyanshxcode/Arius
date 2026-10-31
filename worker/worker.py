@@ -19,8 +19,9 @@ import time
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--units", type=int, default=80000, help="matmul iterations")
+    ap.add_argument("--units", type=int, default=80000, help="max matmul iterations")
     ap.add_argument("--size", type=int, default=1024, help="matrix edge (NxN)")
+    ap.add_argument("--seconds", type=float, default=12.0, help="time budget for the run")
     ap.add_argument("--no-gpu", action="store_true")
     args = ap.parse_args()
 
@@ -35,7 +36,7 @@ def main() -> None:
         device = "cuda"
 
     print(f"[worker] pid={os.getpid()} host={platform.node()} device={device} "
-          f"size={args.size} units={args.units}", flush=True)
+          f"size={args.size} units={args.units} budget={args.seconds}s", flush=True)
 
     if torch is not None:
         td = torch.device(device)
@@ -45,9 +46,11 @@ def main() -> None:
         loss = 1.0
         t0 = time.time()
         step = 0
-        for step in range(1, args.units + 1):
+        deadline = t0 + max(1.0, args.seconds)
+        while step < args.units and time.time() < deadline:
+            step += 1
             x = torch.softmax(x @ x.T, dim=-1)
-            if step % max(1, args.units // 40) == 0:
+            if step % 25 == 0:
                 loss = 0.9 * loss + 0.02
                 print(f"[{device}] step {step} loss {loss:.6f} "
                       f"norm {float(x.norm()):.2f}", flush=True)
@@ -73,19 +76,24 @@ def main() -> None:
             np = None
 
         if np is not None:
-            x = np.random.rand(args.size, args.size).astype("float32")
+            n = min(args.size, 512)
+            x = np.random.rand(n, n).astype("float32")
             t0 = time.time()
-            for step in range(1, args.units + 1):
+            deadline = t0 + max(1.0, args.seconds)
+            step = 0
+            while step < args.units and time.time() < deadline:
+                step += 1
                 x = x @ x.T
                 x /= np.max(np.abs(x)) + 1e-9
-                if step % max(1, args.units // 20) == 0:
+                if step % 10 == 0:
                     print(f"[cpu-numpy] step {step} norm {float(np.linalg.norm(x)):.3f}", flush=True)
             elapsed = time.time() - t0
             result = {
                 "ok": True,
                 "device": "cpu",
                 "backend": "numpy",
-                "steps": args.units,
+                "steps": step,
+                "size": n,
                 "elapsed_s": round(elapsed, 2),
                 "hostname": platform.node(),
             }
@@ -94,19 +102,22 @@ def main() -> None:
             n = min(args.size, 64)
             a = [[0.001 * ((i * 7 + j * 13) % 97) for j in range(n)] for i in range(n)]
             t0 = time.time()
-            steps = max(1, min(args.units, 60))
-            for step in range(1, steps + 1):
+            deadline = t0 + max(1.0, min(args.seconds, 8.0))
+            step = 0
+            steps_cap = min(args.units, 400)
+            while step < steps_cap and time.time() < deadline:
+                step += 1
                 b = [[sum(a[i][k] * a[j][k] for k in range(n)) for j in range(n)] for i in range(n)]
                 m = max(abs(v) for row in b for v in row) or 1.0
                 a = [[v / m for v in row] for row in b]
-                if step % max(1, steps // 10) == 0:
+                if step % max(1, steps_cap // 10) == 0:
                     print(f"[cpu-python] step {step} max {m:.3f}", flush=True)
             elapsed = time.time() - t0
             result = {
                 "ok": True,
                 "device": "cpu",
                 "backend": "python",
-                "steps": steps,
+                "steps": step,
                 "size": n,
                 "elapsed_s": round(elapsed, 2),
                 "hostname": platform.node(),

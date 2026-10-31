@@ -213,7 +213,8 @@ def actor_result(actor_id: str, body: ResultIn):
 class ExecIn(BaseModel):
     org_id: int = 2
     name: str = "real-gpu-job"
-    units: int = 80000          # matmul iterations requested from the worker
+    units: int = 80000          # max matmul iterations
+    seconds: float = 12.0       # time budget — keeps the demo beat predictable
     actor_id: str | None = None
 
 
@@ -262,6 +263,7 @@ def exec_real(body: ExecIn):
         "broker_url": "http://127.0.0.1:8000",
         "actor_id": actor.id,
         "units": body.units,
+        "seconds": body.seconds,
         "rate_per_second": info["rate"],
     }
     try:

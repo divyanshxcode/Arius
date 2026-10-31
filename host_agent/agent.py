@@ -14,6 +14,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import queue
 import shutil
 import subprocess
 import sys
@@ -95,10 +96,25 @@ def post(path: str, payload: dict) -> dict | None:
         return None
 
 
+LOG_Q: "queue.Queue[tuple[int, str]]" = queue.Queue(maxsize=5000)
+
+
+def _log_sender() -> None:
+    """Ship log lines off-thread so a slow broker never throttles the worker."""
+    while True:
+        job_id, line = LOG_Q.get()
+        if job_id is None:
+            return
+        if STATE["actor_id"]:
+            post(f"/actors/{STATE['actor_id']}/logs", {"job_id": job_id, "line": line})
+
+
 def push_log(job_id: int, line: str) -> None:
     print(line, flush=True)
-    if STATE["actor_id"]:
-        post(f"/actors/{STATE['actor_id']}/logs", {"job_id": job_id, "line": line})
+    try:
+        LOG_Q.put_nowait((job_id, line))
+    except queue.Full:
+        pass  # drop rather than block the demo
 
 
 def register() -> None:
@@ -134,26 +150,29 @@ class RunIn(BaseModel):
     broker_url: str = "http://127.0.0.1:8000"
     actor_id: str | None = None
     units: int = 80000
+    seconds: float = 12.0
     rate_per_second: float = 0.0015
 
 
-def _run_docker(job_id: int, units: int) -> dict:
+def _run_docker(job_id: int, units: int, seconds: float) -> dict:
     cmd = [
         "docker", "run", "--rm", "--gpus", "all",
         "-v", f"{WORKER.as_posix()}:/work/worker.py:ro",
         "pytorch/pytorch:latest",
-        "python", "/work/worker.py", "--units", str(units),
+        "python", "/work/worker.py", "--units", str(units), "--seconds", str(seconds),
     ]
-    return _stream(cmd, job_id)
+    return _stream(cmd, job_id, timeout_s=seconds + 180)
 
 
-def _run_local(job_id: int, units: int) -> dict:
-    cmd = [sys.executable, str(WORKER), "--units", str(units), "--no-gpu"]
-    return _stream(cmd, job_id)
+def _run_local(job_id: int, units: int, seconds: float) -> dict:
+    cmd = [sys.executable, str(WORKER), "--units", str(units), "--seconds", str(seconds), "--no-gpu"]
+    # hard backstop: even if the worker ignores its budget, the demo moves on
+    return _stream(cmd, job_id, timeout_s=seconds + 10)
 
 
-def _stream(cmd: list[str], job_id: int) -> dict:
+def _stream(cmd: list[str], job_id: int, timeout_s: float = 120.0) -> dict:
     started = time.time()
+    push_log(job_id, "[agent] exec: " + " ".join(str(c) for c in cmd[-4:]))
     proc = subprocess.Popen(
         cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1
     )
@@ -166,7 +185,14 @@ def _stream(cmd: list[str], job_id: int) -> dict:
             continue
         if line:
             push_log(job_id, line)
-    proc.wait()
+        if time.time() - started > timeout_s:
+            proc.kill()
+            push_log(job_id, "[agent] timeout — killing worker")
+            break
+    try:
+        proc.wait(timeout=max(5.0, timeout_s))
+    except subprocess.TimeoutExpired:
+        proc.kill()
     elapsed = time.time() - started
     if result_line:
         try:
@@ -180,18 +206,18 @@ def _stream(cmd: list[str], job_id: int) -> dict:
     return res
 
 
-def execute(job_id: int, units: int, rate: float) -> None:
+def execute(job_id: int, units: int, rate: float, seconds: float = 12.0) -> None:
     STATE["busy"] = True
     STATE["last_job"] = job_id
     try:
         push_log(job_id, f"[agent] job {job_id} accepted on {STATE['name']} ({STATE['gpu_model']})")
         if STATE["docker_gpu"]:
             push_log(job_id, "[agent] launching container with --gpus all (pytorch/pytorch)")
-            res = _run_docker(job_id, units)
+            res = _run_docker(job_id, units, seconds)
         else:
             mode = "local python (cpu)" if not STATE["has_gpu"] else "local python (gpu)"
             push_log(job_id, f"[agent] launching worker — {mode}")
-            res = _run_local(job_id, units)
+            res = _run_local(job_id, units, seconds)
         res["rate_per_second"] = rate
         post(f"/actors/{STATE['actor_id']}/results", {"job_id": job_id, "result": res})
     except Exception as exc:  # noqa: BLE001
@@ -204,7 +230,11 @@ def execute(job_id: int, units: int, rate: float) -> None:
 
 @app.post("/run")
 def run(body: RunIn):
-    t = threading.Thread(target=execute, args=(body.job_id, body.units, body.rate_per_second), daemon=True)
+    t = threading.Thread(
+        target=execute,
+        args=(body.job_id, body.units, body.rate_per_second, body.seconds),
+        daemon=True,
+    )
     t.start()
     return {"accepted": True, "job_id": body.job_id}
 
@@ -250,6 +280,7 @@ def main() -> None:
     print(f"[agent] gpu={has_gpu} model={model} vram={STATE['vram_gb']}GB "
           f"docker={STATE['has_docker']} docker_gpu={STATE['docker_gpu']}", flush=True)
 
+    threading.Thread(target=_log_sender, daemon=True).start()
     threading.Thread(target=register, daemon=True).start()
     uvicorn.run(app, host=args.host, port=args.port, log_level="warning")
 

@@ -97,6 +97,35 @@ export default function ControlPanel({ onBook, orgId }) {
 
   return (
     <div className="flex h-full flex-col gap-3">
+      {/* demo triggers */}
+      <div className="flex items-center gap-1.5">
+        <span className="text-[10px] uppercase tracking-[0.14em] text-muted">demo</span>
+        <button
+          onClick={async () => {
+            try {
+              await post("/demo/burst?count=14", {});
+            } catch (e) {
+              setAiErr(e.message);
+            }
+          }}
+          className="rounded border border-rose/40 bg-rose/10 px-2 py-0.5 text-[10px] text-rose"
+        >
+          load burst
+        </button>
+        <button
+          onClick={async () => {
+            try {
+              await post("/demo/reclaim", {});
+            } catch (e) {
+              setAiErr(e.message);
+            }
+          }}
+          className="rounded border border-amber/40 bg-amber/10 px-2 py-0.5 text-[10px] text-amber"
+        >
+          drain busiest host
+        </button>
+      </div>
+
       {/* Phase 4 */}
       <div>
         <div className="flex items-center justify-between">
