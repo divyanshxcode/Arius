@@ -100,13 +100,26 @@ LOG_Q: "queue.Queue[tuple[int, str]]" = queue.Queue(maxsize=5000)
 
 
 def _log_sender() -> None:
-    """Ship log lines off-thread so a slow broker never throttles the worker."""
+    """Ship log lines off-thread in batches so a slow broker never throttles the worker."""
     while True:
         job_id, line = LOG_Q.get()
         if job_id is None:
             return
+        batch = [line]
+        deadline = time.time() + 0.35
+        while len(batch) < 60 and time.time() < deadline:
+            try:
+                nxt_job, nxt_line = LOG_Q.get(timeout=max(0.01, deadline - time.time()))
+            except queue.Empty:
+                break
+            if nxt_job is None:
+                break
+            if nxt_job != job_id:
+                LOG_Q.put((nxt_job, nxt_line))
+                break
+            batch.append(nxt_line)
         if STATE["actor_id"]:
-            post(f"/actors/{STATE['actor_id']}/logs", {"job_id": job_id, "line": line})
+            post(f"/actors/{STATE['actor_id']}/logs", {"job_id": job_id, "lines": batch})
 
 
 def push_log(job_id: int, line: str) -> None:

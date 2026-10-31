@@ -148,18 +148,24 @@ def list_actors():
 
 class LogIn(BaseModel):
     job_id: int
-    line: str
+    line: str | None = None
+    lines: list[str] | None = None
 
 
 @router.post("/actors/{actor_id}/logs")
 def actor_log(actor_id: str, body: LogIn):
     if actor_id not in REGISTRY:
         raise HTTPException(404, "unknown actor")
+    incoming = body.lines or ([body.line] if body.line else [])
+    if not incoming:
+        return {"ok": True}
     lines = EXEC_LOGS.setdefault(body.job_id, [])
-    lines.append(body.line[:400])
+    for line in incoming:
+        line = line[:400]
+        lines.append(line)
+        bus.publish({"type": "exec.log", "job_id": body.job_id, "line": line, "ts": _now()})
     del lines[:-400]
-    bus.publish({"type": "exec.log", "job_id": body.job_id, "line": body.line[:400], "ts": _now()})
-    return {"ok": True}
+    return {"ok": True, "accepted": len(incoming)}
 
 
 class ResultIn(BaseModel):
