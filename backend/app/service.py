@@ -79,6 +79,7 @@ def allocate(session: Session, job: Job):
     for sl in slices:
         sl.status = "rented"
         sl.current_tenant = f"org:{job.org_id}"
+        sl.job_id = job.id
     job.host_id = host.id
     job.status = "scheduled"
     rate = per_second_rate(host.price_per_hour, host.isolation_tier, current_pressure(session))

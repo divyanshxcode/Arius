@@ -223,6 +223,7 @@ def reclaim(body: ReclaimIn):
             ):
                 sl.status = "free"
                 sl.current_tenant = None
+                sl.job_id = None
             job.host_id = None
             job.status = "queued"
 
@@ -236,6 +237,7 @@ def reclaim(body: ReclaimIn):
             for sl2 in slices2:
                 sl2.status = "rented"
                 sl2.current_tenant = f"org:{job.org_id}"
+                sl2.job_id = job.id
             job.host_id = host2.id
             job.status = "scheduled"
             rate = per_second_rate(host2.price_per_hour, host2.isolation_tier, service.current_pressure(s))

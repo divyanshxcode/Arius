@@ -1,127 +1,60 @@
-import { useEffect, useState } from "react";
+import { useMemo, useState } from "react";
+import { getJSON, usePoll, useSSE } from "./lib/api.js";
+import { Card, Pill, Dot } from "./components/ui.jsx";
+import StatStrip, { HostCard } from "./components/StatStrip.jsx";
+import UtilChart from "./components/UtilChart.jsx";
+import JobQueue from "./components/JobQueue.jsx";
+import EventLog from "./components/EventLog.jsx";
+import LedgerPanel from "./components/LedgerPanel.jsx";
+import ControlPanel from "./components/ControlPanel.jsx";
+import BookingModal from "./components/BookingModal.jsx";
 
-/* ------------------------------------------------------------------ */
-/* Phase 0 shell: proves the broker is alive and BOTH stores answer.   */
-/* Phase 1 fills the fleet grid, Phase 2 the charts, Phase 3 the       */
-/* booking flow, Phase 4 the real host agent.                          */
-/* ------------------------------------------------------------------ */
-
-const PHASE = "Phase 0 · skeleton";
-
-function Pill({ tone = "muted", children }) {
-  const tones = {
-    mint: "bg-mint/10 text-mint border-mint/30",
-    amber: "bg-amber/10 text-amber border-amber/30",
-    rose: "bg-rose/10 text-rose border-rose/30",
-    cyan: "bg-cyan/10 text-cyan border-cyan/30",
-    muted: "bg-white/5 text-muted border-line",
-  };
-  return (
-    <span
-      className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[11px] font-medium tracking-wide ${tones[tone]}`}
-    >
-      {children}
-    </span>
-  );
-}
-
-function Dot({ tone = "mint" }) {
-  const map = {
-    mint: "bg-mint",
-    amber: "bg-amber",
-    rose: "bg-rose",
-    muted: "bg-slate-600",
-  };
-  return <span className={`h-1.5 w-1.5 rounded-full ${map[tone]}`} />;
-}
-
-function Card({ title, right, children, className = "" }) {
-  return (
-    <section
-      className={`rounded-xl border border-line bg-panel/80 shadow-[0_1px_0_0_rgba(255,255,255,0.03)_inset] ${className}`}
-    >
-      <header className="flex items-center justify-between border-b border-line px-4 py-2.5">
-        <h2 className="text-[12px] font-semibold uppercase tracking-[0.14em] text-muted">
-          {title}
-        </h2>
-        {right}
-      </header>
-      <div className="p-4">{children}</div>
-    </section>
-  );
-}
-
-function Placeholder({ label }) {
-  return (
-    <div className="flex h-24 items-center justify-center rounded-lg border border-dashed border-line/80 bg-white/[0.015] text-[12px] text-muted">
-      {label}
-    </div>
-  );
-}
-
-function StoreRow({ name, info, fallbackLabel = "SQLite dev fallback", forceFallback = false }) {
-  const down = !info || info.connected === false;
-  const fallback = info?.fallback_sqlite || forceFallback;
-  const tone = down ? "rose" : fallback ? "amber" : "mint";
-  const label = down ? "DOWN" : fallback ? fallbackLabel.toUpperCase() : "CONNECTED";
-  return (
-    <div className="flex items-start justify-between gap-3 rounded-lg border border-line/70 bg-ink/40 px-3 py-2.5">
-      <div className="min-w-0">
-        <div className="flex items-center gap-2">
-          <Dot tone={tone} />
-          <span className="text-[13px] font-medium text-slate-200">{name}</span>
-        </div>
-        <p className="mt-1 truncate font-mono text-[11px] text-muted">
-          {info?.target || "—"}
-        </p>
-        {info?.error && (
-          <p className="mt-1 line-clamp-1 font-mono text-[10px] text-rose/80">
-            {info.error}
-          </p>
-        )}
-      </div>
-      <Pill tone={tone}>{label}</Pill>
-    </div>
-  );
-}
+const PHASE = "Phase 5 · demo-ready";
+const MAX_EVENTS = 80;
+const RENTERS = [
+  { id: 2, name: "QuantEdge" },
+  { id: 3, name: "MedAI Labs" },
+  { id: 5, name: "IIT Delhi Lab" },
+];
 
 export default function App() {
-  const [health, setHealth] = useState(null);
-  const [error, setError] = useState(null);
-  const [lastSync, setLastSync] = useState(null);
+  const pool = usePoll(() => getJSON("/pool"), 4000);
+  const hosts = usePoll(() => getJSON("/hosts"), 5000);
+  const jobs = usePoll(() => getJSON("/jobs?limit=120"), 4000);
+  const history = usePoll(() => getJSON("/history?minutes=60"), 20000);
+  const health = usePoll(() => getJSON("/health"), 10000);
 
-  useEffect(() => {
-    let alive = true;
-    async function tick() {
-      try {
-        const res = await fetch("/health", { cache: "no-store" });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const data = await res.json();
-        if (!alive) return;
-        setHealth(data);
-        setError(null);
-        setLastSync(new Date());
-      } catch (e) {
-        if (!alive) return;
-        setError(e.message);
-      }
+  const [live, setLive] = useState({});       // host_id -> metrics payload
+  const [ticks, setTicks] = useState({});     // job_id -> live tick
+  const [events, setEvents] = useState([]);
+  const [tickFilter, setTickFilter] = useState("all"); // all | confidential | vgpu | plain
+  const [orgId, setOrgId] = useState(2);
+  const [booking, setBooking] = useState(false);
+
+  const connected = useSSE((ev) => {
+    if (ev.type === "metrics") {
+      const map = {};
+      for (const h of ev.hosts || []) map[h.id] = h;
+      setLive(map);
+      return;
     }
-    tick();
-    const id = setInterval(tick, 5000);
-    return () => {
-      alive = false;
-      clearInterval(id);
-    };
-  }, []);
+    if (ev.type === "job.tick") {
+      setTicks((prev) => ({ ...prev, [ev.job_id]: ev }));
+      return;
+    }
+    setEvents((prev) => [...prev.slice(-MAX_EVENTS), ev]);
+  });
 
-  const dbs = health?.databases;
-  const yb = dbs?.yugabyte;
-  const tiger = dbs?.tiger;
-  const tigerFallback = (tiger?.target || "").startsWith("fallback");
-  const brokerUp = !!health && !error;
+  const hostList = useMemo(() => {
+    const list = hosts.data || [];
+    return tickFilter === "all" ? list : list.filter((h) => h.isolation_tier === tickFilter);
+  }, [hosts.data, tickFilter]);
+
+  const dbHealthy =
+    health.data?.databases?.yugabyte?.ping === "ok" && health.data?.databases?.tiger?.ping === "ok";
 
   return (
-    <div className="mx-auto max-w-[1440px] px-5 py-5">
+    <div className="mx-auto flex min-h-screen max-w-[1560px] flex-col gap-3 px-4 py-4">
       {/* header */}
       <header className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
@@ -136,125 +69,113 @@ export default function App() {
               <h1 className="text-[18px] font-semibold tracking-[0.22em] text-white">ARIUS</h1>
               <span className="text-[12px] text-muted">B2B GPU time-slicing fabric</span>
             </div>
-            <p className="text-[11px] text-muted">
-              hackCBS 9.0 · Cloud track · MLH 2027
-            </p>
+            <p className="text-[11px] text-muted">hackCBS 9.0 · Cloud track · MLH 2027</p>
           </div>
         </div>
+
         <div className="flex items-center gap-2">
-          <Pill tone="cyan">{PHASE}</Pill>
-          <Pill tone="muted">
-            viewing as <span className="text-slate-300">Atlas Bank</span>
+          <Pill tone={connected ? "mint" : "rose"}>
+            <Dot tone={connected ? "mint" : "rose"} />
+            {connected ? "live stream" : "stream offline"}
           </Pill>
+          <Pill tone="cyan">{PHASE}</Pill>
+          <label className="flex items-center gap-1.5 rounded-full border border-line bg-white/5 px-2 py-0.5 text-[11px] text-muted">
+            viewing as
+            <select
+              value={orgId}
+              onChange={(e) => setOrgId(Number(e.target.value))}
+              className="bg-transparent text-[11px] text-slate-200 outline-none"
+            >
+              {RENTERS.map((o) => (
+                <option key={o.id} value={o.id} className="bg-panel">
+                  {o.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <button
+            onClick={() => setBooking(true)}
+            className="rounded-full border border-mint/40 bg-mint/10 px-3 py-1 text-[11px] font-medium text-mint"
+          >
+            book capacity
+          </button>
         </div>
       </header>
 
-      {/* store status */}
-      <div className="mt-5 grid gap-3 md:grid-cols-3">
-        <div className="rounded-xl border border-line bg-panel/80 p-4">
-          <div className="flex items-center justify-between">
-            <span className="text-[12px] font-semibold uppercase tracking-[0.14em] text-muted">
-              Broker
-            </span>
-            <Pill tone={brokerUp ? "mint" : "rose"}>{brokerUp ? "UP" : "DOWN"}</Pill>
-          </div>
-          <p className="mt-2 font-mono text-[12px] text-slate-300">
-            {brokerUp ? "arius-broker · v0.1.0" : `unreachable${error ? ` · ${error}` : ""}`}
-          </p>
-          <p className="mt-1 font-mono text-[11px] text-muted">
-            {lastSync ? `last sync ${lastSync.toLocaleTimeString()}` : "waiting…"}
-          </p>
-        </div>
+      <StatStrip pool={pool.data} dbHealthy={dbHealthy} />
 
-        <div className="rounded-xl border border-line bg-panel/80 p-4">
-          <div className="mb-2 flex items-center justify-between">
-            <span className="text-[12px] font-semibold uppercase tracking-[0.14em] text-muted">
-              YugabyteDB
-            </span>
-            <Pill tone={yb?.connected ? (yb?.fallback_sqlite ? "amber" : "mint") : "rose"}>
-              {yb?.connected ? (yb?.fallback_sqlite ? "FALLBACK" : "CONNECTED") : "DOWN"}
-            </Pill>
-          </div>
-          <StoreRow name="transactional state" info={yb} />
-        </div>
-
-        <div className="rounded-xl border border-line bg-panel/80 p-4">
-          <div className="mb-2 flex items-center justify-between">
-            <span className="text-[12px] font-semibold uppercase tracking-[0.14em] text-muted">
-              Tiger Data / Timescale
-            </span>
-            <Pill tone={!tiger?.connected ? "rose" : tigerFallback ? "amber" : "mint"}>
-              {!tiger?.connected ? "DOWN" : tigerFallback ? "FALLBACK" : "CONNECTED"}
-            </Pill>
-          </div>
-          <StoreRow name="time-series telemetry" info={tiger} forceFallback={tigerFallback} fallbackLabel="shared file fallback" />
-        </div>
-      </div>
-
-      {/* body placeholders */}
-      <div className="mt-3 grid gap-3 lg:grid-cols-3">
-        <Card
-          className="lg:col-span-2"
-          title="Fleet & telemetry"
-          right={<Pill tone="muted">Phase 2</Pill>}
-        >
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-4">
-            {Array.from({ length: 12 }).map((_, i) => (
-              <div
-                key={i}
-                className="rounded-lg border border-dashed border-line/70 bg-white/[0.015] p-2.5"
-              >
-                <div className="flex items-center justify-between">
-                  <span className="h-1.5 w-1.5 rounded-full bg-slate-700" />
-                  <span className="font-mono text-[10px] text-muted">slot {i + 1}</span>
-                </div>
-                <div className="mt-2 h-1.5 w-full rounded-full bg-line/60" />
-                <div className="mt-1.5 h-1 w-2/3 rounded-full bg-line/40" />
+      <div className="grid min-h-0 flex-1 gap-3 xl:grid-cols-[1.75fr_1fr]">
+        {/* left: fleet + chart */}
+        <div className="flex min-h-0 flex-col gap-3">
+          <Card
+            title="Fleet"
+            right={
+              <div className="flex gap-1">
+                {["all", "confidential", "vgpu", "plain"].map((t) => (
+                  <button
+                    key={t}
+                    onClick={() => setTickFilter(t)}
+                    className={`rounded-full border px-2 py-0.5 text-[10px] transition-colors ${
+                      tickFilter === t
+                        ? "border-mint/40 bg-mint/10 text-mint"
+                        : "border-line text-muted hover:text-slate-300"
+                    }`}
+                  >
+                    {t}
+                  </button>
+                ))}
               </div>
-            ))}
-          </div>
-          <div className="mt-3">
-            <Placeholder label="utilization chart — Tiger continuous aggregate (Phase 2)" />
-          </div>
-        </Card>
+            }
+            bodyClass="p-3"
+          >
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
+              {hostList.map((h) => (
+                <HostCard key={h.id} host={h} live={live[h.id]} />
+              ))}
+              {hostList.length === 0 && (
+                <div className="col-span-full grid h-24 place-items-center text-[12px] text-muted">
+                  {hosts.error ? `fleet unavailable — ${hosts.error}` : "loading fleet…"}
+                </div>
+              )}
+            </div>
+          </Card>
 
-        <div className="grid gap-3">
-          <Card title="Job queue" right={<Pill tone="muted">Phase 3</Pill>}>
-            <Placeholder label="queued / running jobs (Phase 1 API → Phase 3 UI)" />
+          <Card title="Telemetry" right={<Pill tone="cyan">Tiger Data</Pill>} bodyClass="p-3">
+            <UtilChart history={history.data} height={190} />
           </Card>
-          <Card title="Event log" right={<Pill tone="muted">Phase 1 SSE</Pill>}>
-            <Placeholder label="live SSE feed (Phase 1.4)" />
+        </div>
+
+        {/* right: jobs + events */}
+        <div className="grid min-h-0 grid-rows-[1.15fr_1fr] gap-3">
+          <Card title="Job queue" right={<Pill tone="mint">live</Pill>} bodyClass="px-3 py-2">
+            <JobQueue jobs={jobs.data} ticks={ticks} />
           </Card>
-          <Card title="Real compute" right={<Pill tone="amber">Phase 4</Pill>}>
-            <Placeholder label="host agent on org B's GPU" />
+          <Card title="Event log" right={<Pill tone="muted">SSE</Pill>} bodyClass="px-3 py-2">
+            <EventLog events={events} />
           </Card>
         </div>
       </div>
 
-      {/* phase 0 checklist */}
-      <Card
-        className="mt-3"
-        title="Phase 0 exit checklist"
-        right={<Pill tone="mint">skeleton</Pill>}
-      >
-        <ul className="grid gap-2 text-[13px] sm:grid-cols-2 lg:grid-cols-4">
-          {[
-            "Broker runs (FastAPI + uvicorn)",
-            "Dual-engine layer + live /health",
-            "Schema script (Yugabyte / Tiger / SQLite)",
-            "Seeded universe (12 hosts · 6 orgs · 25 jobs)",
-          ].map((t) => (
-            <li key={t} className="flex items-start gap-2 rounded-lg border border-line/60 bg-ink/40 px-3 py-2">
-              <span className="mt-0.5 text-mint">✓</span>
-              <span className="text-slate-300">{t}</span>
-            </li>
-          ))}
-        </ul>
-        <p className="mt-3 text-[12px] text-muted">
-          Next: <span className="text-slate-300">Phase 1 — REST surface, SSE pump, pricing &amp; ledger.</span>{" "}
-          Run <code className="rounded bg-white/5 px-1.5 py-0.5 font-mono text-[11px] text-cyan">python -m seeds.init_db --seed --force</code> to reseed.
-        </p>
-      </Card>
+      <div className="grid gap-3 xl:grid-cols-[1.75fr_1fr]">
+        <Card title="Chargeback ledger" right={<Pill tone="amber">cross-org</Pill>} bodyClass="px-3 py-2">
+          <LedgerPanel />
+        </Card>
+        <Card title="Controls" right={<Pill tone="cyan">live demo</Pill>} bodyClass="px-3 py-2">
+          <ControlPanel orgId={orgId} onBook={() => setBooking(true)} />
+        </Card>
+      </div>
+
+      <footer className="flex flex-wrap items-center justify-between gap-2 pb-1 text-[10px] text-muted">
+        <span>
+          scheduling: cheapest eligible host · tier-enforced · multi-slice ·
+          billing settled every 10s
+        </span>
+        <span className="font-mono">
+          {pool.error ? `pool: ${pool.error}` : `poll ${new Date().toLocaleTimeString()}`}
+        </span>
+      </footer>
+
+      <BookingModal open={booking} onClose={() => setBooking(false)} onBooked={() => setBooking(false)} />
     </div>
   );
 }

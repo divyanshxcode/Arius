@@ -25,6 +25,8 @@ from .pricing import per_second_rate
 
 log = logging.getLogger("arius.pump")
 
+from .actors import REAL_JOBS  # noqa: E402  (import after models to avoid cycles)
+
 RUNTIME: dict[int, dict] = {}
 DRAIN_SINCE: dict[int, datetime] = {}
 DRAIN_RECOVER_S = 45.0
@@ -53,6 +55,7 @@ def runtime_for(job: Job, host: Host, slices: list[Slice]) -> dict:
         "loss": round(random.uniform(0.9, 1.6), 4),
         "util_pct": 0.0,
         "last_settle": _now(),
+        "last_tick": _now(),
         "slice_ids": [s.id for s in slices],
         "host_id": host.id,
     }
@@ -68,12 +71,22 @@ def _ensure_runtime(session) -> None:
     for job in live:
         if job.id in RUNTIME or job.host_id is None:
             continue
+        if job.id in REAL_JOBS:
+            continue
         host = session.get(Host, job.host_id)
         slices = (
             session.query(Slice)
-            .filter(Slice.host_id == job.host_id, Slice.current_tenant == f"org:{job.org_id}")
+            .filter(Slice.job_id == job.id)
             .all()
         )
+        if not slices:
+            # legacy rows created before slice ownership was tracked
+            slices = (
+                session.query(Slice)
+                .filter(Slice.host_id == job.host_id,
+                        Slice.current_tenant == f"org:{job.org_id}")
+                .all()
+            )
         if not host or not slices:
             continue
         st = runtime_for(job, host, slices)
@@ -122,6 +135,7 @@ def _schedule_queued(session, limit: int = 3) -> None:
         for sl in slices:
             sl.status = "rented"
             sl.current_tenant = f"org:{job.org_id}"
+            sl.job_id = job.id
         job.host_id = host.id
         job.status = "scheduled"
         pressure = service.current_pressure(session)
@@ -180,8 +194,12 @@ def _advance_jobs(session) -> None:
             continue
 
         # --- running: consume budget, accrue cost, evolve the loss curve -----
-        st["remaining_s"] = max(0.0, st["remaining_s"] - 1.0)
-        st["charged"] = round(st["charged"] + st["rate"], 8)
+        # Wall-clock based, so a slow/retried tick never stretches the job.
+        now = _now()
+        elapsed = max(0.0, (now - st.get("last_tick", now)).total_seconds())
+        st["last_tick"] = now
+        st["remaining_s"] = max(0.0, st["remaining_s"] - elapsed)
+        st["charged"] = round(st["charged"] + st["rate"] * elapsed, 8)
         st["loss"] = max(0.05, round(st["loss"] * 0.9988 - random.uniform(0.0, 0.0025), 5))
         st["util_pct"] = round(min(97.0, 62 + random.uniform(0, 33)), 1)
 
@@ -242,9 +260,10 @@ def _settle(session, job: Job, st: dict, seconds: float) -> None:
 def _complete(session, job: Job, st: dict) -> None:
     for sid in st.get("slice_ids", []):
         sl = session.get(Slice, sid)
-        if sl is not None and sl.current_tenant == f"org:{job.org_id}":
+        if sl is not None and (sl.job_id == job.id or sl.job_id is None):
             sl.status = "free"
             sl.current_tenant = None
+            sl.job_id = None
     _settle(session, job, st, max(0.0, (_now() - st["last_settle"]).total_seconds()))
     job.status = "completed"
     job.finished_at = _now()

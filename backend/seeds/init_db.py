@@ -74,6 +74,14 @@ def main() -> int:
     Base.metadata.create_all(bind=yb)
     log.info("transactional tables created: %s", ", ".join(sorted(Base.metadata.tables)))
 
+    # lightweight migration: newer images add slices.job_id for exact ownership
+    try:
+        with yb.begin() as conn:
+            conn.execute(text("ALTER TABLE slices ADD COLUMN job_id INTEGER"))
+        log.info("migrated: slices.job_id added")
+    except Exception:  # noqa: BLE001 - column already exists (or SQLite quirk)
+        pass
+
     TDBase.metadata.create_all(bind=td)
     log.info("telemetry table created: metrics")
 

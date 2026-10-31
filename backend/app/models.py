@@ -49,6 +49,7 @@ class Slice(Base):
     vram_gb: Mapped[int] = mapped_column(Integer, default=8)
     status: Mapped[str] = mapped_column(String(16), default="free")       # free|rented|reserved
     current_tenant: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    job_id: Mapped[int | None] = mapped_column(Integer, nullable=True)    # exact owner
 
 
 class Job(Base):

@@ -100,12 +100,25 @@ settled into the ledger every 10 seconds.
 
 - [x] **Phase 0** — skeleton: dual-engine layer, live `/health`, schema + seed, dashboard shell
 - [x] **Phase 1** — REST surface, SSE pump, pricing/billing, ledger, tier enforcement, demo triggers
-- [ ] Phase 2 — fleet grid, telemetry charts (Tiger continuous aggregates)
-- [ ] Phase 3 — org switcher, booking flow, chargeback ledger UI
-- [ ] Phase 4 — host agent on B's GPU + torch worker + result download
-- [ ] Phase 5 — Gemini capacity broker + compliance guardrail
-- [ ] Phase 6 — demo triggers + 2-minute arc rehearsal
-- [ ] Phase 7 — hardening, offline Gemini cache, pitch deck
+- [x] **Phase 2** — fleet grid, telemetry charts from Tiger continuous aggregates, job queue, event log
+- [x] **Phase 3** — org switcher, booking modal with tier enforcement, chargeback ledger UI
+- [x] **Phase 4** — host agent + PyTorch/numpy worker + real artifact download (`/exec`, `/actors`, `/results`)
+- [x] **Phase 5** — Gemini capacity broker + compliance guardrail + spend explainer (offline rule fallback)
+- [x] **Phase 6** — demo triggers wired to the UI; runbook in [`DEMO.md`](./DEMO.md)
+- [x] **Phase 7** — hardening: serialization retries, drain recovery, offline AI cache, 3 run modes
+
+## Host agent (the real-compute beat)
+
+```bash
+cd host_agent
+../backend/.venv/Scripts/python.exe agent.py --broker http://127.0.0.1:8000 \
+    --name "AtlasBank-H03" --port 9001
+```
+
+It registers as a sellable host, executes jobs with `--gpus all` when Docker+GPU are
+available, otherwise runs `worker/worker.py` locally (CUDA → CPU auto-fallback), and
+streams logs plus a downloadable JSON artifact to the broker. The broker never runs
+customer code.
 
 ## Note on Docker
 

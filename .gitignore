@@ -17,3 +17,5 @@ Thumbs.db
 
 # data
 uploads/results/
+results/
+gemini_cache.json

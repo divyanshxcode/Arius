@@ -9,6 +9,12 @@ export default defineConfig({
     proxy: {
       "/health": "http://localhost:8000",
       "/api": "http://localhost:8000",
+      "/ai": "http://localhost:8000",
+      "/exec": "http://localhost:8000",
+      "/actors": "http://localhost:8000",
+      "/pool": "http://localhost:8000",
+      "/prices": "http://localhost:8000",
+      "/history": "http://localhost:8000",
       "/events": "http://localhost:8000",
       "/hosts": "http://localhost:8000",
       "/jobs": "http://localhost:8000",
