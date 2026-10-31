@@ -1,0 +1,99 @@
+# Arius — distributed state (YugabyteDB 3 nodes) + time-series (Tiger Data)
+# Requires Docker Desktop with the Linux engine (WSL2).
+#
+#   docker compose up -d          # full 3-node cluster
+#   docker compose -f docker-compose.lite.yml up -d   # 1-node dev fallback
+#
+# Yugabyte SQL port is 5433 (5432 inside the container is YSQL too, but 5433
+# is the yugabyted default that we expose on the host).
+
+services:
+  yb-node1:
+    image: yugabytedb/yugabyte:2.25.1.0-b381
+    container_name: arius-yb1
+    command: >
+      bin/yugabyted start --daemon=false
+      --base_dir=/home/yugabyte/yb_data
+      --advertise_address=172.28.0.2
+      --cloud_location=arius.ap-south.zone1
+      --join=172.28.0.2,172.28.0.3,172.28.0.4
+      --fault_tolerance=zone
+    ports:
+      - "5433:5433"
+    networks:
+      arius:
+        ipv4_address: 172.28.0.2
+    volumes:
+      - yb1_data:/home/yugabyte/yb_data
+    healthcheck:
+      test: ["CMD", "bash", "-c", "bin/ysqlsh -h 127.0.0.1 -p 5433 -U yugabyte -c 'select 1' >/dev/null 2>&1"]
+      interval: 15s
+      timeout: 10s
+      retries: 20
+      start_period: 60s
+
+  yb-node2:
+    image: yugabytedb/yugabyte:2.25.1.0-b381
+    container_name: arius-yb2
+    command: >
+      bin/yugabyted start --daemon=false
+      --base_dir=/home/yugabyte/yb_data
+      --advertise_address=172.28.0.3
+      --cloud_location=arius.ap-south.zone2
+      --join=172.28.0.2,172.28.0.3,172.28.0.4
+      --fault_tolerance=zone
+    networks:
+      arius:
+        ipv4_address: 172.28.0.3
+    volumes:
+      - yb2_data:/home/yugabyte/yb_data
+    depends_on:
+      - yb-node1
+
+  yb-node3:
+    image: yugabytedb/yugabyte:2.25.1.0-b381
+    container_name: arius-yb3
+    command: >
+      bin/yugabyted start --daemon=false
+      --base_dir=/home/yugabyte/yb_data
+      --advertise_address=172.28.0.4
+      --cloud_location=arius.ap-south.zone3
+      --join=172.28.0.2,172.28.0.3,172.28.0.4
+      --fault_tolerance=zone
+    networks:
+      arius:
+        ipv4_address: 172.28.0.4
+    volumes:
+      - yb3_data:/home/yugabyte/yb_data
+    depends_on:
+      - yb-node1
+
+  tiger:
+    image: timescale/timescaledb:latest-pg16
+    container_name: arius-tiger
+    environment:
+      POSTGRES_USER: arius
+      POSTGRES_PASSWORD: arius
+      POSTGRES_DB: arius
+    ports:
+      - "5434:5432"   # host 5434: local PostgreSQL usually owns 5432
+    volumes:
+      - tiger_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U arius -d arius"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+networks:
+  arius:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16
+
+volumes:
+  yb1_data:
+  yb2_data:
+  yb3_data:
+  tiger_data:

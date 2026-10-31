@@ -1,0 +1,20 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  @apply bg-ink text-slate-200 antialiased;
+  background-image:
+    radial-gradient(1000px 400px at 85% -10%, rgba(76, 201, 240, 0.07), transparent 70%),
+    radial-gradient(800px 300px at 10% 110%, rgba(61, 220, 151, 0.05), transparent 70%);
+}
+
+::selection {
+  background: rgba(61, 220, 151, 0.25);
+}

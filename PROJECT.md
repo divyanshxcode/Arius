@@ -102,7 +102,7 @@ Arius answers a real, monetizable problem: **enterprise GPU fleets sit at <20% u
 |---|---|---|
 | Backend | FastAPI + SQLAlchemy | PG-compatible drivers work for both DBs |
 | Transactional DB | **YugabyteDB** — 3-node Docker cluster (port **5433**) | Sponsor; Raft node-kill demo; geo-partition story |
-| Time-series DB | **Tiger Data** (PostgreSQL extension, port 5432) | MLH prize; continuous aggregates feed charts |
+| Time-series DB | **Tiger Data** (PostgreSQL extension, host port 5434 — 5432 is usually taken) | MLH prize; continuous aggregates feed charts |
 | AI | **Gemini API** (`gemini-2.0-flash`, `google-genai`) | MLH prize; 3 real features |
 | Frontend | Vite + React + Tailwind + Recharts | Fast, familiar, dark control-plane UI |
 | Real compute | Docker + PyTorch `worker.py` on B's machine | The "A uses B's GPU" proof |
@@ -272,7 +272,7 @@ Offline insurance: cache ~10 canned responses keyed by request hash; on API fail
 | Step | Task | Delivers |
 |---|---|---|
 | 0.1 | Prime Docker: pull `pytorch/pytorch` image + start both DBs on both laptops during registration | Warm image (6–9 GB) |
-| 0.2 | Docker Compose: 3-node Yugabyte (5433) + Tiger Data (5432) | Both sponsor DBs up |
+| 0.2 | Docker Compose: 3-node Yugabyte (5433) + Tiger Data (5434) | Both sponsor DBs up |
 | 0.3 | FastAPI app: dual SQLAlchemy engines, `/health` checks both | Skeleton online |
 | 0.4 | Vite + React + Tailwind shell, dark theme, Recharts installed | Shell renders |
 | 0.5 | `init_db.py` schema-recreation script (clean rebuild < 60 s) | Reproducible |

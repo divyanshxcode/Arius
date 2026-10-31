@@ -1,0 +1,92 @@
+# Arius — B2B GPU Time-Slicing Fabric
+
+![hackCBS 9.0](https://img.shields.io/badge/hackCBS-9.0-3ddc97) ![track](https://img.shields.io/badge/track-Cloud-4cc9f0) ![MLH](https://img.shields.io/badge/MLH-2027%20Season-7d90a4)
+
+> Enterprise GPU fleets idle at <20% utilization while teams queue months for capacity.
+> **Arius turns that idle silicon into a verified, tiered, per-second marketplace — and proves it by running your workload on someone else's GPU.**
+
+**One real keystone:** org A books a slice on org B's machine, B's GPU physically executes A's job, A downloads the real artifact. Everything around it — scheduling, tier enforcement, metering, ledger — is real code on a distributed database. Fleet breadth is simulated.
+
+Full plan: [`PROJECT.md`](./PROJECT.md).
+
+---
+
+## Quickstart (3 modes)
+
+### Mode 1 — SQLite dev fallback (no Docker needed)
+
+```bash
+cd backend
+py -3.12 -m venv .venv
+./.venv/Scripts/python.exe -m pip install -r requirements.txt
+./.venv/Scripts/python.exe -m seeds.init_db --seed
+./.venv/Scripts/python.exe -m uvicorn app.main:app --port 8000 --reload
+# → http://localhost:8000/health
+```
+
+```bash
+cd frontend
+npm install
+npm run dev          # → http://localhost:5173
+```
+
+### Mode 2 — Full stack (YugabyteDB 3 nodes + Tiger Data)
+
+Requires Docker Desktop (WSL2 engine).
+
+```bash
+docker compose up -d          # 3-node Yugabyte on 5433 + Timescale/Tiger on 5434
+cd backend
+./.venv/Scripts/python.exe -m seeds.init_db --seed --force
+./.venv/Scripts/python.exe -m uvicorn app.main:app --port 8000 --reload
+```
+
+### Mode 3 — Lite (single-node DBs, low RAM)
+
+```bash
+docker compose -f docker-compose.lite.yml up -d
+```
+
+Helper scripts: `scripts/check-env.sh`, `scripts/start-db.sh [lite]`, `scripts/dev-backend.sh`, `scripts/dev-frontend.sh`, `scripts/check-gpu.sh`.
+
+---
+
+## Layout
+
+```
+Arius/
+├── PROJECT.md              full implementation plan (source of truth)
+├── docker-compose.yml      3-node YugabyteDB + Tiger Data
+├── docker-compose.lite.yml single-node fallback
+├── backend/
+│   ├── app/                FastAPI broker: config, dual-engine db layer, models, main
+│   └── seeds/              init_db.py (schema + timescale DDL) + seed_data.py (universe)
+├── frontend/               Vite + React + Tailwind dashboard shell
+└── scripts/                env/db/dev/gpu checks
+```
+
+## Stack
+
+| Layer | Choice |
+|---|---|
+| Broker | FastAPI + SQLAlchemy |
+| Transactional state | **YugabyteDB** (3-node Raft cluster, YSQL port **5433**) |
+| Telemetry | **Tiger Data** / TimescaleDB (hypertable + continuous aggregate `util_1m`) |
+| AI | **Gemini** `gemini-2.0-flash` (Phase 5: capacity broker, compliance guardrail, fleet analyst) |
+| Frontend | Vite + React + Tailwind + Recharts |
+| Real compute | host agent + Docker + PyTorch worker (Phase 4) |
+
+## Build status
+
+- [x] **Phase 0** — skeleton: dual-engine layer, live `/health`, schema + seed, dashboard shell
+- [ ] Phase 1 — REST surface, SSE pump, pricing/billing, ledger
+- [ ] Phase 2 — fleet grid, telemetry charts (Tiger continuous aggregates)
+- [ ] Phase 3 — org switcher, booking flow, tier enforcement, chargeback ledger
+- [ ] Phase 4 — host agent on B's GPU + torch worker + result download
+- [ ] Phase 5 — Gemini capacity broker + compliance guardrail
+- [ ] Phase 6 — demo triggers + 2-minute arc rehearsal
+- [ ] Phase 7 — hardening, offline Gemini cache, pitch deck
+
+## Note on Docker
+
+Docker is **not required** for development: `DB_MODE=auto` (default) tries Yugabyte on 5433 and transparently falls back to a local SQLite file, and `/health` reports honestly which mode is live. The demo must run on the real cluster (`DB_MODE=yugabyte`) so the Raft node-kill beat is genuine.

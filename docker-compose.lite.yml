@@ -1,0 +1,45 @@
+# Arius — single-node dev fallback (use when the laptop can't afford 3 Yugabyte
+# nodes; ~1.5 GB instead of ~5 GB).
+#
+#   docker compose -f docker-compose.lite.yml up -d
+
+services:
+  yugabyte:
+    image: yugabytedb/yugabyte:2.25.1.0-b381
+    container_name: arius-yb
+    command: >
+      bin/yugabyted start --daemon=false
+      --base_dir=/home/yugabyte/yb_data
+      --advertise_address=127.0.0.1
+      --cloud_location=arius.ap-south.zone1
+    ports:
+      - "5433:5433"
+    volumes:
+      - yb_data:/home/yugabyte/yb_data
+    healthcheck:
+      test: ["CMD", "bash", "-c", "bin/ysqlsh -h 127.0.0.1 -p 5433 -U yugabyte -c 'select 1' >/dev/null 2>&1"]
+      interval: 15s
+      timeout: 10s
+      retries: 20
+      start_period: 45s
+
+  tiger:
+    image: timescale/timescaledb:latest-pg16
+    container_name: arius-tiger
+    environment:
+      POSTGRES_USER: arius
+      POSTGRES_PASSWORD: arius
+      POSTGRES_DB: arius
+    ports:
+      - "5434:5432"   # host 5434: local PostgreSQL usually owns 5432
+    volumes:
+      - tiger_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U arius -d arius"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  yb_data:
+  tiger_data:
