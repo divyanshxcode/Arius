@@ -151,6 +151,45 @@ def session_factory() -> sessionmaker[Session]:
     return sessionmaker(bind=get_engine(), expire_on_commit=False, future=True)
 
 
+RETRYABLE_SQLSTATES = {"40001", "40P01"}   # serialization failure / deadlock
+
+
+def _retryable(err: Exception) -> bool:
+    orig = getattr(err, "orig", None)
+    state = getattr(orig, "sqlstate", None) or getattr(orig, "pgcode", None) or ""
+    return state in RETRYABLE_SQLSTATES
+
+
+def run_txn(fn, attempts: int = 6, base_delay: float = 0.05):
+    """Run fn(session) in a transaction, retrying on distributed-DB conflicts.
+
+    YugabyteDB (like any serializable store) can abort one of two concurrent
+    writers with SQLSTATE 40001. The correct client behaviour is to restart the
+    transaction — this is what makes the pump + API safe to run side by side.
+    """
+    import time
+
+    last: Exception | None = None
+    for i in range(attempts):
+        s = session_factory()()
+        try:
+            result = fn(s)
+            s.commit()
+            return result
+        except Exception as err:  # noqa: BLE001
+            s.rollback()
+            last = err
+            if _retryable(err) and i < attempts - 1:
+                time.sleep(base_delay * (2 ** i))
+                continue
+            raise
+        finally:
+            s.close()
+    if last:
+        raise last
+    return None
+
+
 def td_session_factory() -> sessionmaker[Session]:
     """Sessions bound to the telemetry store (Tiger Data)."""
     return sessionmaker(bind=get_td_engine(), expire_on_commit=False, future=True)

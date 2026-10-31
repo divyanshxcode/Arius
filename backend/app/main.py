@@ -1,21 +1,20 @@
-"""Arius broker — Phase 0 skeleton.
+"""Arius broker — Phase 1.
 
-Endpoints so far:
-    GET /            service banner
-    GET /health      live status of BOTH stores (YugabyteDB + Tiger Data)
-
-Phase 1 adds /hosts, /jobs, /allocate, /ledger, /events (SSE).
+REST surface + SSE + the pump. Run with:
+    uvicorn app.main:app --port 8000
 """
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from . import db
+from . import api, db, pump
 from .config import settings
 
 logging.basicConfig(
@@ -26,16 +25,25 @@ log = logging.getLogger("arius")
 
 
 @asynccontextmanager
-async def lifespan(_app: FastAPI):
+async def lifespan(app: FastAPI):
     log.info("Arius broker starting (db_mode=%s)", settings.db_mode)
     db.init()
     if db.state.yb_fallback:
         log.warning("Running on SQLite fallback — fine for UI dev, not for the demo.")
-    yield
-    log.info("Arius broker stopped")
+
+    task = asyncio.create_task(pump.run_pump(1.0))
+    app.state.pump_task = task
+    log.info("pump task running")
+    try:
+        yield
+    finally:
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
+        log.info("Arius broker stopped")
 
 
-app = FastAPI(title="Arius Broker", version="0.1.0", lifespan=lifespan)
+app = FastAPI(title="Arius Broker", version="0.2.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -46,14 +54,22 @@ app.add_middleware(
 )
 
 
+app.include_router(api.router)
+
+
 @app.get("/")
 def root() -> dict:
     return {
         "service": "arius-broker",
-        "version": "0.1.0",
+        "version": "0.2.0",
         "tagline": "B2B GPU time-slicing fabric",
-        "phase": "0 — skeleton",
+        "phase": "1 — marketplace core",
         "docs": "/docs",
+        "endpoints": [
+            "GET /health", "GET /orgs", "GET /hosts", "GET /pool", "GET /jobs",
+            "GET /prices", "GET /ledger", "GET /history", "GET /events (SSE)",
+            "POST /allocate", "POST /reclaim", "POST /demo/burst", "POST /demo/reclaim",
+        ],
     }
 
 

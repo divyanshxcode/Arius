@@ -15,7 +15,7 @@ from datetime import datetime, timedelta
 
 from sqlalchemy.orm import Session
 
-from app.models import Event, Host, Job, Metric, Org, Slice
+from app.models import Event, Host, Job, Metric, Org, Slice, Transaction
 
 ORGS = [
     # name, type, balance
@@ -58,9 +58,21 @@ JOB_NAMES = [
 def _clear(yb: Session, td: Session) -> None:
     # metrics live ONLY in the telemetry store (Tiger Data / Timescale);
     # the transactional store never has that table.
-    for model in (Slice, Job, Event, Host, Org):
+    for model in (Slice, Job, Transaction, Event, Host, Org):
         yb.query(model).delete()
     yb.commit()
+
+    # Deterministic ids keep the demo stable: orgs are 1..6, hosts 1..12.
+    # (SQLite has no sequences; the ALTER simply fails and is ignored.)
+    from sqlalchemy import text
+
+    for table in ("orgs", "hosts", "slices", "jobs", "transactions", "events"):
+        try:
+            yb.execute(text(f"ALTER SEQUENCE {table}_id_seq RESTART WITH 1"))
+            yb.commit()
+        except Exception:  # noqa: BLE001
+            yb.rollback()
+
     td.query(Metric).delete()
     td.commit()
 
@@ -78,9 +90,12 @@ def seed(yb: Session, td: Session, force: bool = False) -> dict:
     yb.flush()
 
     hosts: list[Host] = []
-    for name, region, org_id, model, vram, slices, tier, trust, price in HOSTS:
+    for name, region, org_ref, model, vram, slices, tier, trust, price in HOSTS:
+        # org_ref is the 1-based index into ORGS; map it to the real (sequence)
+        # id, otherwise repeated reseeds leave hosts pointing at nothing.
+        owner = orgs[org_ref - 1]
         h = Host(
-            name=name, region=region, org_id=org_id, gpu_model=model,
+            name=name, region=region, org_id=owner.id, gpu_model=model,
             vram_gb=vram, total_slices=slices, isolation_tier=tier,
             trust_score=trust, status="online", price_per_hour=price,
         )
@@ -100,7 +115,7 @@ def seed(yb: Session, td: Session, force: bool = False) -> dict:
         yb.add(Job(
             org_id=rng.choice(renters),
             name=f"{rng.choice(JOB_NAMES)}-{i + 1:02d}",
-            vram_req=rng.choice([6, 8, 11, 16, 24, 40]),
+            vram_req=rng.choice([6, 8, 8, 11, 11, 16]),
             isolation_req=rng.choice(tiers),
             duration_s=rng.choice([600, 900, 1800, 3600, 5400, 7200]),
             status="queued",

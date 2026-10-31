@@ -78,12 +78,30 @@ Arius/
 | Frontend | Vite + React + Tailwind + Recharts |
 | Real compute | host agent + Docker + PyTorch worker (Phase 4) |
 
+## API (Phase 1)
+
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/health` | live status of both stores |
+| GET | `/orgs` `/hosts` `/pool` `/jobs` `/prices` `/ledger` | read models |
+| GET | `/history?minutes=60` | chart series from Tiger's `util_1m` aggregate |
+| GET | `/events` | SSE: metrics, job ticks, settlements, host events |
+| POST | `/allocate` | real scheduling: reserves slices, returns host+tier+rate |
+| POST | `/reclaim` | drain a host, migrate its jobs elsewhere |
+| POST | `/demo/burst` | queue a load spike (demo trigger) |
+| POST | `/demo/reclaim` | drain the busiest host (demo trigger) |
+
+Scheduling rule: cheapest eligible host that can honour the isolation tier and
+supply enough free VRAM (a job may span several MIG slices on one GPU).
+Billing: `rate = list_price/3600 × (1 + queue_pressure) × tier_multiplier × vram_share`,
+settled into the ledger every 10 seconds.
+
 ## Build status
 
 - [x] **Phase 0** — skeleton: dual-engine layer, live `/health`, schema + seed, dashboard shell
-- [ ] Phase 1 — REST surface, SSE pump, pricing/billing, ledger
+- [x] **Phase 1** — REST surface, SSE pump, pricing/billing, ledger, tier enforcement, demo triggers
 - [ ] Phase 2 — fleet grid, telemetry charts (Tiger continuous aggregates)
-- [ ] Phase 3 — org switcher, booking flow, tier enforcement, chargeback ledger
+- [ ] Phase 3 — org switcher, booking flow, chargeback ledger UI
 - [ ] Phase 4 — host agent on B's GPU + torch worker + result download
 - [ ] Phase 5 — Gemini capacity broker + compliance guardrail
 - [ ] Phase 6 — demo triggers + 2-minute arc rehearsal
